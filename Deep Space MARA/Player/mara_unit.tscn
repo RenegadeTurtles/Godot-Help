@@ -1,0 +1,134 @@
+[gd_scene load_steps=9 format=3 uid="uid://dqjtx7jq7apai"]
+
+[ext_resource type="Material" uid="uid://ijrh5k44oqtr" path="res://Player/mara_placeholder_material.tres" id="1_7jmv4"]
+[ext_resource type="ArrayMesh" uid="uid://bltb7doum5lga" path="res://Player/MARA.obj" id="2_24r3v"]
+[ext_resource type="Script" path="res://Player/StateMachine.gd" id="3_isjsd"]
+[ext_resource type="Script" path="res://Player/Idle.gd" id="4_ev656"]
+[ext_resource type="Script" path="res://Player/Base.gd" id="5_qhghn"]
+[ext_resource type="Script" path="res://Player/Dash.gd" id="6_uontt"]
+
+[sub_resource type="GDScript" id="GDScript_2te8t"]
+resource_name = "mara_unit"
+script/source = "extends CharacterBody3D
+
+class_name Player
+
+# Temporarily turned off camera dampening.
+
+@export var jumpHeight: float = 4.6
+@export var gravity: float = 48.0
+@export var maxJumps: int = 2
+@export var coyoteTimer: float = 0.2
+
+
+@export var mouse_sensitivity = 0.0035
+@export var rotation_speed = 12.0
+
+@onready var spring_arm: SpringArm3D = $CameraSpring
+@onready var model: MeshInstance3D = $MARA_Mesh
+@onready var jump_buffer_raycast: RayCast3D = $JumpBufferRaycast
+
+var desiresJump: bool = false
+var airTime: float = 0.0
+
+
+#func _unhandled_input(event):
+	#if event is InputEventMouseMotion:
+		#spring_arm.rotation.x -= event.relative.y * mouse_sensitivity
+		#spring_arm.rotation_degrees.x = clamp(
+			#spring_arm.rotation_degrees.x, -80.0, 30.0)
+		#spring_arm.rotation.y -= event.relative.x * mouse_sensitivity
+
+func _physics_process(delta: float) -> void:
+#region Original Movement Script
+	#print(velocity)
+	
+	# Manage Coyote time and double-jump resets.
+	if is_on_floor():
+		airTime = 0.0
+		maxJumps = 2
+	else:
+		airTime += delta
+	
+	# Add the gravity.
+	if not is_on_floor():
+		velocity.y -= gravity * delta
+
+	# Handles jump.
+	Jump()
+	
+	# Handles jump buffer.
+	BufferJump()
+
+
+	move_and_slide()
+	#if velocity.length() > 1.0:
+		#model.rotation.y = lerp_angle(
+			#model.rotation.y, spring_arm.rotation.y, rotation_speed * delta)
+
+func Jump() -> void:
+	if Input.is_action_just_pressed(\"jump\"):
+		if ((maxJumps == 2 and airTime <= coyoteTimer) or maxJumps == 1):
+			velocity.y = sqrt(jumpHeight * 2.0 * gravity)
+			maxJumps -= 1
+		# Raycast that buffers jump when all other jumps are exhausted.
+		elif maxJumps == 0 and jump_buffer_raycast.is_colliding():
+			desiresJump = true
+		# Ugly hack that lets me jump once after leaving ledge.
+		# This also fits the criteria for leting be jump once after I buffer after double jump.
+		# I might need to fix that later lmao.
+		elif !is_on_floor() and maxJumps == 2:
+			velocity.y = sqrt(jumpHeight * 2.0 * gravity)
+			maxJumps -= 2
+
+# Handles Jump on next collision with ground when buffering. Currently double-jump only??
+func BufferJump() -> void:
+	if desiresJump and is_on_floor():
+		desiresJump = false
+		velocity.y = sqrt(jumpHeight * 2.0 * gravity)
+"
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_2n37f"]
+radius = 1.0
+
+[node name="MARA_Unit" type="Node3D"]
+
+[node name="MARA_Unit" type="CharacterBody3D" parent="." groups=["Player"]]
+collision_layer = 2
+script = SubResource("GDScript_2te8t")
+
+[node name="MARA_Mesh" type="MeshInstance3D" parent="MARA_Unit"]
+material_override = ExtResource("1_7jmv4")
+mesh = ExtResource("2_24r3v")
+
+[node name="MARA_Collision" type="CollisionShape3D" parent="MARA_Unit"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+shape = SubResource("SphereShape3D_2n37f")
+
+[node name="JumpBufferRaycast" type="RayCast3D" parent="MARA_Unit"]
+target_position = Vector3(0, -1.5, 0)
+debug_shape_thickness = 5
+
+[node name="CameraSpring" type="SpringArm3D" parent="MARA_Unit"]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 0.939693, 0.34202, 0, -0.34202, 0.939693, 0, 3, 0)
+spring_length = 5.5
+margin = 0.1
+
+[node name="PlayerCamera" type="Camera3D" parent="MARA_Unit/CameraSpring"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.40781, 6.36538)
+current = true
+
+[node name="StateMachine" type="Node" parent="MARA_Unit" node_paths=PackedStringArray("initial_state")]
+script = ExtResource("3_isjsd")
+initial_state = NodePath("Idle")
+
+[node name="Idle" type="Node" parent="MARA_Unit/StateMachine"]
+script = ExtResource("4_ev656")
+
+[node name="Base" type="Node" parent="MARA_Unit/StateMachine" node_paths=PackedStringArray("player")]
+script = ExtResource("5_qhghn")
+player = NodePath("../..")
+
+[node name="Dash" type="Node" parent="MARA_Unit/StateMachine"]
+script = ExtResource("6_uontt")
